@@ -2,7 +2,9 @@ name: hourly-digest
 
 on:
   schedule:
-    - cron: "7 * * * *"
+    # GitHub silently drops most hourly slots, so knock every 15 minutes;
+    # build.py publishes only when new items exist, an empty pass costs nothing.
+    - cron: "3,18,33,48 * * * *"
   workflow_dispatch:
     inputs:
       force:
