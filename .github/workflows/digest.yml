@@ -1,0 +1,46 @@
+name: hourly-digest
+
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Ignore quiet hours"
+        type: boolean
+        default: false
+
+concurrency:
+  group: digest
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build issue
+        run: |
+          if [ "${{ inputs.force }}" = "true" ]; then
+            python3 build.py --force
+          else
+            python3 build.py
+          fi
+
+      - name: Publish
+        run: |
+          touch .nojekyll
+          git config user.name "kw-digest bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add -A feed.rss index.html d state .nojekyll
+          if git diff --cached --quiet; then
+            echo "nothing to publish"
+            exit 0
+          fi
+          git commit -m "digest $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push
