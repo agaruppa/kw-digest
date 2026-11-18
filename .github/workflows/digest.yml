@@ -44,3 +44,22 @@ jobs:
           fi
           git commit -m "digest $(date -u +%Y-%m-%dT%H:%MZ)"
           git push
+
+      - name: Monthly history squash
+        run: |
+          if [ "$(date -u +%d)" != "01" ]; then
+            echo "not the 1st - skipping"
+            exit 0
+          fi
+          n=$(git rev-list --count HEAD)
+          if [ "$n" -lt 400 ]; then
+            echo "$n commits - history still readable, skipping"
+            exit 0
+          fi
+          git checkout -q --orphan squashed
+          git add -A
+          git commit -qm "squash history ($n commits) $(date -u +%Y-%m-%d)"
+          git branch -q -M squashed main
+          git push -q -f origin main
+          echo "squashed $n commits into one"
+

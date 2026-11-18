@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 import sources
 
 CATEGORIES = [
+    ("alerts", "Предупреждения погоды"),
     ("incidents", "Происшествия и полиция"),
     ("roads", "Дороги, перекрытия, транспорт"),
     ("projects", "Проекты и стройка"),
@@ -71,14 +72,21 @@ LOCALITY = re.compile(
     r"north dumfries|conestoga|grand river|region of waterloo|wrps|\bgrt\b|\bion\b|\bkw\b", re.I)
 
 
+ALERTS_RE = re.compile(
+    r"\b(warning|watch|advisory|alert|statement|storm|freezing rain|snowfall|"
+    r"extreme cold|heat warning|tornado|air quality|flood|fog)\b", re.I)
+
+
 def is_local(it):
     if it["source"] in sources.LOCAL:
         return True
     return bool(LOCALITY.search(it["title"] + " " + it.get("summary", "")))
 
 
-def classify(title, summary):
+def classify(title, summary, source=""):
     text = (title + " " + summary).lower()
+    if source == "EC" or (ALERTS_RE.search(title) and re.search(r"warning|watch|advisory|alert|statement", title, re.I)):
+        return "alerts"
     for name, pattern in RULES:
         if re.search(pattern, text, re.I):
             return name
@@ -125,7 +133,7 @@ def build_issues(items, state, now):
             seen[url] = now.isoformat()
             continue
         it["url"] = url
-        it["category"] = classify(it["title"], it.get("summary", ""))
+        it["category"] = classify(it["title"], it.get("summary", ""), it["source"])
         fresh.append(it)
 
     # newest first, dedupe near-identical headlines
@@ -133,10 +141,14 @@ def build_issues(items, state, now):
     kept = []
     for it in fresh:
         for k in kept:
-            if it["source"] != k["source"] and similar(it["title"], k["title"]):
-                k.setdefault("also", []).append(it["source"])
-                seen[norm_url(it["url"])] = now.isoformat()
-                break
+            if it["source"] == k["source"] or not similar(it["title"], k["title"]):
+                continue
+            pa, pb = it.get("published"), k.get("published")
+            if pa and pb and abs((pa - pb).total_seconds()) > 4 * 3600:
+                continue
+            k.setdefault("also", []).append(it["source"])
+            seen[norm_url(it["url"])] = now.isoformat()
+            break
         else:
             kept.append(it)
 
@@ -225,12 +237,35 @@ def render_feed(history, self_url, site_url):
             "%s</channel></rss>") % (esc(site_url), esc(self_url), "\n".join(items))
 
 
+def prune(site_dir, keep_days=7, now=None):
+    now = now or datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=keep_days)
+    d = os.path.join(site_dir, "d")
+    if not os.path.isdir(d):
+        return 0
+    gone = 0
+    for name in os.listdir(d):
+        m = re.match(r"(\d{4})-(\d{2})-(\d{2})(?:-(\d{2}))?\.html$", name)
+        if not m:
+            continue
+        try:
+            stamp = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)),
+                             int(m.group(4) or 0), tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if stamp < cutoff:
+            os.remove(os.path.join(d, name))
+            gone += 1
+    return gone
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--state", default="state")
     ap.add_argument("--out", default=".")
     ap.add_argument("--base", default=sources.BASE)
     ap.add_argument("--force", action="store_true", help="ignore quiet hours")
+    ap.add_argument("--keep-days", type=int, default=7, help="issue pages to keep")
     args = ap.parse_args()
 
     now = datetime.now(timezone.utc)
@@ -248,7 +283,8 @@ def main():
 
     if not any(buckets.values()):
         save_json(os.path.join(args.state, "state.json"), state)
-        print("no new items - nothing published")
+        gone = prune(args.out, keep_days=args.keep_days, now=now)
+        print("no new items - nothing published (pruned %d)" % gone)
         return 0
 
     issue_id = now.strftime("%Y-%m-%d-%H")
@@ -287,7 +323,10 @@ def main():
         fh.write(feed)
 
     save_json(os.path.join(args.state, "state.json"), state)
+    gone = prune(args.out, keep_days=args.keep_days, now=now)
     print("published %s with %d items (%s)" % (issue_id, total, "; ".join(heads)))
+    if gone:
+        print("pruned %d old issue pages" % gone)
     for s in status:
         if not s["ok"]:
             print("  source failed: %s - %s" % (s["source"], s.get("error", "")))
