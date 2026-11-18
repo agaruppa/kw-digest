@@ -133,9 +133,8 @@ def build_issues(items, state, now):
     kept = []
     for it in fresh:
         for k in kept:
-            if similar(it["title"], k["title"]):
-                if it["source"] != k["source"]:
-                    k.setdefault("also", []).append(it["source"])
+            if it["source"] != k["source"] and similar(it["title"], k["title"]):
+                k.setdefault("also", []).append(it["source"])
                 seen[norm_url(it["url"])] = now.isoformat()
                 break
         else:
