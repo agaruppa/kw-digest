@@ -176,7 +176,7 @@ h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:26px 0 8px;padding-bot
 border-bottom:1px solid #8884;text-transform:uppercase;letter-spacing:.04em;color:#666}
 @media(prefers-color-scheme:dark){h2{color:#aaa}}
 .meta{color:#777;font-size:13px;margin-bottom:18px}
-.item{margin:0 0 14px}.item a.t{font-weight:600;text-decoration:none;color:inherit}
+.item{margin:0 0 14px}.item .hdr{font-weight:600;margin:0 0 2px}.item a.t{font-weight:400;font-size:13px;text-decoration:none;color:#8a6a2a}
 .item a.t:hover{text-decoration:underline}.src{color:#777;font-size:12px;margin:2px 0 4px}
 .item p{margin:2px 0;color:#444;font-size:14px}
 @media(prefers-color-scheme:dark){.item p{color:#bbb}}
@@ -199,12 +199,21 @@ def render_page(issue, buckets, status):
             if it.get("also"):
                 also = " · also: " + esc(", ".join(sorted(set(it["also"]))))
             summary = it.get("summary") or ""
+            # Google News descriptions are just the headline plus the outlet,
+            # which reads as a stutter under the headline. Drop those.
+            if summary and it["title"][:40].lower() in summary.lower():
+                summary = ""
+            # The FeedFox article view silently drops a block whose anchor text
+            # is long, so the headline goes in as plain text and the link keeps
+            # a short fixed label. Verified by A/B probes on 2026-11-18.
             parts.append(
-                '<div class="item"><a class="t" href="%s">%s</a>'
-                '<div class="src">%s%s%s</div>%s</div>' % (
-                    esc(it["url"]), esc(it["title"]), esc(it["source"]),
+                '<div class="item"><div class="hdr">%s</div>'
+                '<div class="src">%s%s%s</div>%s'
+                '<a class="t" href="%s">\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a</a></div>' % (
+                    esc(it["title"]), esc(it["source"]),
                     (" · " + when) if when else "", also,
-                    ('<p>%s</p>' % esc(summary[:300])) if summary else ""))
+                    ('<p>%s</p>' % esc(summary[:300])) if summary else "",
+                    esc(it["url"])))
     bad = [s for s in status if not s["ok"]]
     foot = "Сформировано %s UTC" % issue["time"].strftime("%d.%m.%Y %H:%M")
     if bad:
